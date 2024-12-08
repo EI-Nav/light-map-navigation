@@ -35,6 +35,10 @@ ros2 run osm_planner osm_planner_opti_node
 * 修改机器人的激光雷达话题：在`ipm_obs_use.py`中修改`self.livox_sub`订阅中的激光雷达话题。
 
 ## Grounded_SAM改动点
+0. 代码参考：`src/grounded_sam`
 1. 在`grounded_sam_func_contour.py`中，对于原有代码中的分割结果做处理，从原来的逐项素分割变成输出分割区域的轮廓,然后把代码封装一个函数。
    * 该python文件最后封装的函数需要返回Json格式的分割结果 
 2. 在`action_counter.py`中，通过调用上述代码，封装成了一个`action`，通过调用封装好的函数，返回Json格式的分割结果供后续处理。
+
+## IPM功能包
+* 主要功能在`src/ipm_package/ipm_image_node`功能包中
