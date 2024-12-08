@@ -3,7 +3,6 @@
 - `IPM`
 - `osm_planner` 
 
-
 ## 安装依赖
 
 ### ipm功能包和osm_planner功能包依赖安装
@@ -34,3 +33,8 @@ ros2 run osm_planner osm_planner_opti_node
 * 相机话题设置：位于Segment Anything的`action_counter.py`中
 * 修改相机内参：位于`ipm_obstacle_server.py`中的`109行`起的`self.camera_info`，同时修改RGB图像所在的坐标系
 * 修改机器人的激光雷达话题：在`ipm_obs_use.py`中修改`self.livox_sub`订阅中的激光雷达话题。
+
+## Grounded_SAM改动点
+1. 在`grounded_sam_func_contour.py`中，对于原有代码中的分割结果做处理，从原来的逐项素分割变成输出分割区域的轮廓,然后把代码封装一个函数。
+   * 该python文件最后封装的函数需要返回Json格式的分割结果 
+2. 在`action_counter.py`中，通过调用上述代码，封装成了一个`action`，通过调用封装好的函数，返回Json格式的分割结果供后续处理。
