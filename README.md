@@ -42,3 +42,81 @@ ros2 run osm_planner osm_planner_opti_node
 
 ## IPM功能包
 * 主要功能在`src/ipm_package/ipm_image_node`功能包中
+
+## Navigation2有关costmap的改动点
+主要在`nav2_params_sim.yaml`中进行修改，需要添加模拟生成的点云和`Scan`来利用`nav2`自带的工具生成costmap。
+1. 全局代价地图生成
+   ```bash
+      stvl_layer:
+        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
+        # https://github.com/SteveMacenski/spatio_temporal_voxel_layer
+        enabled:                  true
+        voxel_decay:              0.5                               # 如果是线性衰减，单位为秒；如果是指数衰减，则为 e 的 n 次方
+        decay_model:              0                                 # 衰减模型，0=线性，1=指数，-1=持久
+        voxel_size:               0.1                              # 每个体素的尺寸，单位为米
+        track_unknown_space:      true                              # default space is unknown
+        mark_threshold:           0                                 # voxel height
+        update_footprint_enabled: true
+        combination_method:       1                                 # 1=max, 0=override
+        origin_z:                 0.0                               # 单位为米
+        publish_voxel_map:        true                              # default false, 是否发布体素地图
+        transform_tolerance:      0.2                               # 单位为秒
+        mapping_mode:             false                             # default off, saves map not for navigation
+        map_save_duration:        60.0                              # deault 60s, how often to autosave
+        observation_sources:      sem_mark sem_clear
+      sem_mark:
+          data_type: PointCloud2
+          topic: /sem_obstacles_points_use
+          marking: true
+          clearing: false
+          obstacle_range: 10.0                                       # meters
+          min_obstacle_height: -1.0                                  # default 0, meters
+          max_obstacle_height: 0.5                                  # default 3, meters
+          expected_update_rate: 0.0                                 # default 0, if not updating at this rate at least, remove from buffer
+          observation_persistence: 0.0                              # default 0, use all measurements taken during now-value, 0=latest
+          inf_is_valid: false                                       # default false, for laser scans
+          filter: "voxel"                                           # default passthrough, apply "voxel", "passthrough", or no filter to sensor data, recommend on
+          voxel_min_points: 0                                       # default 0, minimum points per voxel for voxel filter
+          clear_after_reading: true                                 # default false, clear the buffer after the layer gets readings from it
+        sem_clear:
+          enabled: true                                             # default true, can be toggled on/off with associated service call
+          data_type: PointCloud2
+          topic: /sem_obstacles_points_use
+          marking: false
+          clearing: true
+          max_z: 8.0                                                # default 10, meters
+          min_z: -1.0                                                # default 0, meters
+          vertical_fov_angle: 1.029                                 # 垂直视场角，单位为弧度，For 3D lidars it's the symmetric FOV about the planar axis.
+          vertical_fov_padding: 0.05                                # 3D Lidar only. Default 0, in meters
+          horizontal_fov_angle: 6.29                                # 3D 激光雷达水平视场角
+          decay_acceleration: 5.0                                   # default 0, 1/s^2.
+          model_type: 1                                             # 0=深度相机，1=3D激光雷达
+   ```
+2. 局部代价地图生成
+   ```bash
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observati1on_sources: scan sem_scan
+        # observati1on_sources: scan
+        sem_scan:
+          topic: /sem_obstacles_scan
+          raytrace_max_range: 6.0
+          obstacle_max_range: 6.0
+          obstacle_min_range: 0.1
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          inf_is_valid: true
+          data_type: "LaserScan"
+        scan:
+          topic: /scan
+          raytrace_max_range: 6.0
+          obstacle_max_range: 6.0
+          obstacle_min_range: 0.1
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          inf_is_valid: true
+          data_type: "LaserScan"
+   ```
