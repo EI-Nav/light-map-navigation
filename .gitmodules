@@ -1,0 +1,24 @@
+[submodule "src/rm_driver/livox_ros_driver2_humble"]
+	path = src/rm_driver/livox_ros_driver2_humble
+	url = https://gitee.com/SMBU-POLARBEAR/livox_ros_driver2_humble.git
+	ignore = dirty
+[submodule "src/rm_navigation/teb_local_planner"]
+	path = src/rm_navigation/teb_local_planner
+	url = https://github.com/rst-tu-dortmund/teb_local_planner.git
+	branch = ros2-master
+	ignore = dirty
+[submodule "src/rm_navigation/costmap_converter"]
+	path = src/rm_navigation/costmap_converter
+	url = https://github.com/LihanChen2004/costmap_converter.git
+	branch = RM2024_SMBU_auto_sentry
+	ignore = dirty
+[submodule "src/rm_localization/FAST_LIO"]
+	path = src/rm_localization/FAST_LIO
+	url = https://github.com/LihanChen2004/FAST_LIO.git
+	branch = RM2024_SMBU_auto_sentry
+	ignore = dirty
+[submodule "src/rm_localization/point_lio"]
+	path = src/rm_localization/point_lio
+	url = https://github.com/LihanChen2004/Point-LIO.git
+	branch = RM2024_SMBU_auto_sentry
+	ignore = dirty

@@ -1,0 +1,6 @@
+# GetIPMContourPoints.srv
+
+# Request is empty
+---
+
+sensor_msgs/PointCloud2 point_cloud  # 服务响应，包含投影后的点云数据

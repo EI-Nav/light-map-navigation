@@ -1,0 +1,12 @@
+bt_action_server:
+  ros__parameters:
+    action_name: "llm_behavior_server" # Optional (defaults to `bt_action_server`)
+    tick_frequency: 100 # Optional (defaults to 100 Hz)
+    groot2_port: 1667 # Optional (defaults to 1667)
+    ros_plugins_timeout: 1000  # Optional (defaults 1000 ms)
+
+    plugins:
+      - llm_bt_executor/bt_plugins
+
+    behavior_trees:
+      - llm_bt_executor/behavior_trees

@@ -1,0 +1,12 @@
+# goal
+string building_id
+string unit_number
+float32 cur_x
+float32 cur_y
+---
+# Result
+bool success
+string message
+---
+# Feedback
+string status

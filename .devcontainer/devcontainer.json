@@ -1,0 +1,28 @@
+{
+	"name": "light-map-navigation-main1",
+	"image": "light-map-navigation:1.5",
+	"runArgs": [
+	  "--init",
+	  "--gpus=all",
+	  "--privileged",
+	  "--env=NVIDIA_DRIVER_CAPABILITIES=all",
+	  "--env=DISPLAY=${localEnv:DISPLAY}",
+	  "--env=QT_X11_NO_MITSHM=1",
+	  "--volume=/tmp/.X11-unix:/tmp/.X11-unix",
+	  "--network=host",
+	  "--runtime=nvidia"
+	],
+	"customizations": {
+	  "vscode": {
+			"extensions": [
+				"llvm-vs-code-extensions.vscode-clangd",
+				"vadimcn.vscode-lldb",
+				"xaver.clang-format",
+				"ms-python.python",
+				"ms-iot.vscode-ros",
+				"ms-vscode.cmake-tools",
+				"usernamehw.errorlens"
+			]
+	  }
+	}
+}

@@ -1,0 +1,29 @@
+<package format="3">
+  <name>custom_interfaces</name>
+  <version>0.2.0</version>
+  <description>
+  ROS2 interfaces
+  </description>
+
+  <maintainer email="wjh@9696.com">wjh</maintainer>
+  <license>MIT</license>
+  <author>wjh</author>
+
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <depend>action_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+<export>
+  <build_type>ament_cmake</build_type>
+</export>
+
+</package>

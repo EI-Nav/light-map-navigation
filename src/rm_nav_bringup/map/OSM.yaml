@@ -1,0 +1,10 @@
+image: OSM.pgm
+mode: trinary
+resolution: 0.05
+origin:
+  - -46.547141182410996
+  - -58.385387808342735
+  - 0.0
+negate: 0
+occupied_thresh: 0.65
+free_thresh: 0.25

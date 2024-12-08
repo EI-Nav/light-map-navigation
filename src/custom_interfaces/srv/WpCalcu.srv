@@ -1,0 +1,5 @@
+# OSM_planner中计算waypoint的自定义服务，通过调用，输出一个PoseStampe类型的Waypoiont
+
+---
+# Response
+geometry_msgs/PoseStamped wp  # 返回计算出的 Waypoint

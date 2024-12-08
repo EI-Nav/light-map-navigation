@@ -1,0 +1,7 @@
+<launch>
+  <arg name="sleep_server" default="true"/>
+
+  <node pkg="llm_bt_executor" exec="llm_bt_executor" output="screen">
+    <param from="$(find-pkg-share llm_bt_executor)/config/bt_executor.yaml"/>
+  </node>
+</launch>

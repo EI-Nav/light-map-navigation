@@ -1,0 +1,5 @@
+ Please deliver this parcel into unit1, building2.
+ Please deliver this package into unit2, building16.
+ Please deliver this item into unit2, building17.
+ Please deliver this box into unit2, building12.
+ Please deliver this parcel into unit1, building17.

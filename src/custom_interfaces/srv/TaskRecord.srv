@@ -1,0 +1,5 @@
+# TaskRecord.srv
+string status
+string address
+---
+bool success

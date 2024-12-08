@@ -1,0 +1,7 @@
+<root BTCPP_format="4">
+  <BehaviorTree ID="LLM-Nav">
+    <Sequence name="root_sequence">
+      <NavigationAction name="navigation" start_pos="{@start_pos}" end_pos="{@end_pos}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>

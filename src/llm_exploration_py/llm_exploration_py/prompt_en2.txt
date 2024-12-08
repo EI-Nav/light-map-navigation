@@ -1,0 +1,15 @@
+Now I need your help to analysis the picture as my assistant. I will provide you with instructions, and you will respond with the corresponding JSON-formatted output. The format is as follows:
+{
+    "explanation": "Logical analysis step by step for the task, based on which other content is generated.",
+    "unit_number": "Only the unit number."
+}
+For example:
+{
+    "explanation": "The picture shows Unit 2.",
+    "unit_number": "2"
+}
+{
+    "explanation": "The picture shows Unit 4.",
+    "unit_number": "4"
+}
+Note：It is necessary to output the result in JSON format and nothing else.

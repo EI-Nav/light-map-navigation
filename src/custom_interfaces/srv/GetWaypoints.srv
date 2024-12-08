@@ -1,0 +1,6 @@
+# GetWaypoints.srv
+string start
+string end
+---
+bool success
+geometry_msgs/PoseStamped[] waypoints

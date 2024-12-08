@@ -1,0 +1,9 @@
+# ConcaveHull.srv
+
+# 输入参数
+sensor_msgs/PointCloud2 point_cloud
+
+# 输出
+---
+geometry_msgs/PolygonStamped concave_hull  # 凹包多边形
+geometry_msgs/PolygonStamped line_segment  # 分割线段
