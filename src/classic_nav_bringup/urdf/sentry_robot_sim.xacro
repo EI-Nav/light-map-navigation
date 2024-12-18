@@ -262,8 +262,36 @@
     <origin xyz="$(arg xyz)" rpy="$(arg rpy)" />
   </xacro:mid360>
 
+    <!-- 深度相机仿真 -->
+  <xacro:include filename="$(find realsense_ros_gazebo)/xacro/depthcam.xacro"/>
+
+  <xacro:realsense_d435 sensor_name="d435_0" parent_link="base_link" rate="10">
+    <origin rpy="0 0 0" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+  <xacro:realsense_d435 sensor_name="d435_1" parent_link="base_link" rate="10">
+    <origin rpy="0 0 ${pi/3}" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+  <xacro:realsense_d435 sensor_name="d435_2" parent_link="base_link" rate="10">
+    <origin rpy="0 0 ${2*pi/3}" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+  <xacro:realsense_d435 sensor_name="d435_3" parent_link="base_link" rate="10">
+    <origin rpy="0 0 ${pi}" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+  <xacro:realsense_d435 sensor_name="d435_4" parent_link="base_link" rate="10">
+    <origin rpy="0 0 ${-2*pi/3}" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+  <xacro:realsense_d435 sensor_name="d435_5" parent_link="base_link" rate="10">
+    <origin rpy="0 0 ${-pi/3}" xyz="0 0 0.5"/>
+  </xacro:realsense_d435>
+
+
   <!-- RGB camera仿真 -->
-  <link name="camera_link">
+  <!-- <link name="camera_link">
     <visual>
       <geometry>
         <box size="0.05 0.05 0.05"/>
@@ -285,20 +313,18 @@
     <parent link="base_link"/>
     <child link="camera_link"/>
     <origin xyz="0.15 0 0.2" rpy="0 0 0"/>
-  </joint>
+  </joint> -->
 
-  <joint name="camera_optical_joint" type="fixed">
-    <!-- these values have to be these values otherwise the gazebo camera image
-        won't be aligned properly with the frame it is supposedly originating from -->
+  <!-- <joint name="camera_optical_joint" type="fixed">
     <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
     <parent link="camera_link"/>
     <child link="camera_link_optical"/>
   </joint>
 
   <link name="camera_link_optical">
-  </link>
+  </link> -->
 
-  <gazebo reference="camera_link">
+  <!-- <gazebo reference="camera_link">
     <sensor type="camera" name="camera_sensor">
       <update_rate>10.0</update_rate>
       <camera>
@@ -333,7 +359,7 @@
         <focalLength>0.0</focalLength>
       </plugin>
     </sensor>
-  </gazebo>
+  </gazebo> -->
 
 
 </robot>
