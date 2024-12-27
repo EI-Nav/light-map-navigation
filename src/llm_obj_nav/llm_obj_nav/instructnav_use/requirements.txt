@@ -1,0 +1,8 @@
+pathfinding==1.0.9
+salesforce_lavis==1.0.2
+xformers==0.0.28.post1
+apex==0.9.10dev
+onnxscript
+open3d==0.18.0
+openai==1.45.0
+opencv_python
