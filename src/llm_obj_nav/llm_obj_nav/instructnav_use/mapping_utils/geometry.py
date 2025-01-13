@@ -7,42 +7,117 @@ import cv2
 from sensor_msgs.msg import PointCloud2, PointField
 import rclpy
 from std_msgs.msg import Header 
+import numpy as np
+import geometry_msgs.msg
+from sensor_msgs.msg import PointCloud2
+from tf2_ros import TransformException
+import math
 
 
 # 通过深度相机的深度图和RGB图像以及相机内参获取点云，将像素坐标映射为3D空间坐标(pixel,depth->pcd)
 def get_pointcloud_from_depth(rgb:np.ndarray,depth:np.ndarray,intrinsic:np.ndarray):
     if len(depth.shape) == 3:
         depth = depth[:,:,0]
-    filter_z,filter_x = np.where(depth>0)
-    depth_values = depth[filter_z,filter_x]
-    pixel_z = (depth.shape[0] - 1 - filter_z - intrinsic[1][2]) * depth_values / intrinsic[1][1]
-    pixel_x = (filter_x - intrinsic[0][2])*depth_values / intrinsic[0][0]
-    pixel_y = depth_values
-    color_values = rgb[filter_z,filter_x]
-    point_values = np.stack([pixel_x,pixel_z,-pixel_y],axis=-1)
-    return point_values,color_values
+   
+    # 获取图像尺寸
+    height, width = depth.shape
+   
+    # 创建网格坐标
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+   
+    # 计算3D点坐标
+    z = depth
+    x = (x - intrinsic[0][2]) * z / intrinsic[0][0]  # (u - cx) * z / fx
+    y = (y - intrinsic[1][2]) * z / intrinsic[1][1]  # (v - cy) * z / fy
+   
+    # 过滤有效深度值
+    valid_mask = depth > 0
+   
+    # 将点云数据重组为(N,3)的形状
+    points = np.stack((x.flatten(), y.flatten(), z.flatten()), axis=1)
+   
+    # 使用有效深度掩码过滤点云
+    valid_points = points[valid_mask.flatten()]
+    color_values = rgb.reshape(-1, rgb.shape[-1])[valid_mask.flatten()]
+   
+    # 移除NaN和Inf值
+    valid_indices = ~(np.isnan(valid_points).any(axis=1) | np.isinf(valid_points).any(axis=1))
+    valid_points = valid_points[valid_indices]
+    color_values = color_values[valid_indices]
+   
+    return valid_points, color_values
 
 # 通过深度相机的深度图和mask图像以及相机内参获取点云，将像素坐标映射为3D空间坐标，其中利用了mask进行过滤，即考虑了分割信息
-def get_pointcloud_from_depth_mask(depth:np.ndarray,mask:np.ndarray,intrinsic:np.ndarray):
+# def get_pointcloud_from_depth_mask(depth:np.ndarray,mask:np.ndarray,intrinsic:np.ndarray):
+#     if len(depth.shape) == 3:
+#         depth = depth[:,:,0]
+#     if len(mask.shape) == 3:
+#         mask = mask[:,:,0]
+       
+#     # 获取图像尺寸
+#     height, width = depth.shape
+   
+#     # 创建网格坐标
+#     x, y = np.meshgrid(np.arange(width), np.arange(height))
+   
+#     # 计算3D点坐标，注意保持原有的坐标系转换
+#     z = depth
+#     x = (x - intrinsic[0][2]) * z / intrinsic[0][0]  # (u - cx) * z / fx
+#     y = (depth.shape[0] - 1 - y - intrinsic[1][2]) * z / intrinsic[1][1]  # (height-1-v - cy) * z / fy
+   
+#     # 过滤有效深度值和mask
+#     valid_mask = (depth > 0) & (mask > 0)
+   
+#     # 将点云数据重组为(N,3)的形状，注意坐标轴的对应关系
+#     points = np.stack((x[valid_mask], -y[valid_mask], z[valid_mask]), axis=-1)
+   
+#     return points
+
+def get_pointcloud_from_depth_mask(depth: np.ndarray, mask: np.ndarray, intrinsic: np.ndarray):
     if len(depth.shape) == 3:
         depth = depth[:,:,0]
     if len(mask.shape) == 3:
         mask = mask[:,:,0]
-    filter_z,filter_x = np.where((depth>0) & (mask>0))
-    depth_values = depth[filter_z,filter_x]
-    pixel_z = (depth.shape[0] - 1 - filter_z - intrinsic[1][2]) * depth_values / intrinsic[1][1]
-    pixel_x = (filter_x - intrinsic[0][2])*depth_values / intrinsic[0][0]
-    pixel_y = depth_values
-    point_values = np.stack([pixel_x,pixel_z,-pixel_y],axis=-1)
-    return point_values
+   
+    # 获取图像尺寸
+    height, width = depth.shape
+   
+    # 创建网格坐标
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+   
+    # 计算3D点坐标，注意保持原有的坐标系转换
+    z = depth
+    x = (x - intrinsic[0][2]) * z / intrinsic[0][0]  # (u - cx) * z / fx
+    y = (y - intrinsic[1][2]) * z / intrinsic[1][1]  # (v - cy) * z / fy
+   
+    # 过滤有效深度值和mask
+    valid_mask = (depth > 0) & (mask > 0)
+   
+    # 将点云数据重组为(N,3)的形状，注意坐标轴的对应关系
+    points = np.stack((x[valid_mask], -y[valid_mask], z[valid_mask]), axis=-1)
+   
+    return points
+
 
 # 坐标系转换，从相机坐标系转换到世界坐标系
-def translate_to_world(pointcloud,position,rotation):
+import numpy as np
+
+def translate_to_world(pointcloud, position, rotation):
+    # 创建一个4x4的单位矩阵
     extrinsic = np.eye(4)
-    extrinsic[0:3,0:3] = rotation 
-    extrinsic[0:3,3] = position
-    world_points = np.matmul(extrinsic,np.concatenate((pointcloud,np.ones((pointcloud.shape[0],1))),axis=-1).T).T
-    return world_points[:,0:3]
+    
+    # 设置旋转部分
+    extrinsic[0:3, 0:3] = rotation
+    
+    # 设置平移部分
+    extrinsic[0:3, 3] = position
+    
+    # 执行变换，将点云从相机坐标系转换到世界坐标系
+    world_points = np.matmul(extrinsic, np.concatenate((pointcloud, np.ones((pointcloud.shape[0], 1))), axis=-1).T).T
+    
+    # 返回变换后的点云
+    return world_points[:, 0:3]
+
 
 # 将点云投影到相机平面，生成像素坐标和深度值(pcd->pixel,depth)
 def project_to_camera(pcd,intrinsic,position,rotation):
@@ -187,3 +262,26 @@ def convert_cloud_to_ros_msg(points, frame_id="map"):
     cloud_msg.data = points.astype(np.float32).tobytes()
 
     return cloud_msg
+
+
+def quaternion_to_rotation_matrix(quaternion):
+    """
+    将四元数转换为旋转矩阵
+    :param quaternion: 四元数，geometry_msgs.msg.Quaternion 类型
+    :return: 旋转矩阵，np.array 类型
+    """
+    w, x, y, z = quaternion.w, quaternion.x, quaternion.y, quaternion.z
+    R = np.array([
+        [1 - 2 * (y ** 2 + z ** 2), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x ** 2 + z ** 2), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x ** 2 + y ** 2)]
+    ])
+    return R
+
+def calculate_3Dpoint_distance(point1, point2):
+    """
+    计算两个点之间的欧几里得距离
+    """
+    return math.sqrt((point2.x - point1.x) ** 2 + 
+                        (point2.y - point1.y) ** 2 + 
+                        (point2.z - point1.z) ** 2)

@@ -33,15 +33,30 @@ def gazebo_camera_intrinsic():
 #     return rotation_matrix
 
 def gazebo_translation(position):
-    return np.array([position.x,position.z,position.y])
+    return np.array([position.x,position.y,position.z])
 
 # habitat旋转坐标转换
 def gazebo_rotation(rotation):
-    rotation_matrix = quaternion.as_rotation_matrix(rotation)
+    # rotation_matrix = quaternion.as_rotation_matrix(rotation)
+    rotation_matrix = quaternion_to_rotation_matrix(rotation)
     transform_matrix = np.array([[1,0,0],
-                                 [0,0,1],
-                                 [0,1,0]])
+                                 [0,1,0],
+                                 [0,0,1]])
     rotation_matrix = np.matmul(transform_matrix,rotation_matrix)
     return rotation_matrix
 
+
+def quaternion_to_rotation_matrix(q):
+    """
+    将四元数转换为旋转矩阵
+    :param q: 四元数 [x, y, z, w]
+    :return: 旋转矩阵 R
+    """
+    x, y, z, w = q.x, q.y, q.z, q.w
+    R = np.array([
+        [1 - 2*(y**2 + z**2), 2*(x*y - z*w), 2*(x*z + y*w)],
+        [2*(x*y + z*w), 1 - 2*(x**2 + z**2), 2*(y*z - x*w)],
+        [2*(x*z - y*w), 2*(y*z + x*w), 1 - 2*(x**2 + y**2)]
+    ])
+    return R
 
