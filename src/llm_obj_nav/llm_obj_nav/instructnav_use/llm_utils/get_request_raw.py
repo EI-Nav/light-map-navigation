@@ -6,25 +6,18 @@ import cv2
 import numpy as np
 from mimetypes import guess_type
 
-gpt4_api_base = os.environ['GPT4_API_BASE']
-gpt4_api_key = os.environ['GPT4_API_KEY']
-gpt4v_api_base = os.environ['GPT4V_API_BASE']
-gpt4v_api_key = os.environ['GPT4V_API_KEY']
 
-deployment_name = os.environ['GPT4_API_DEPLOY']
-api_version = os.environ['GPT4_API_VERSION']
-gpt4_client = AzureOpenAI(
-    api_key=gpt4_api_key,  
-    api_version=api_version,
-    base_url=f"{gpt4_api_base}/openai/deployments/{deployment_name}"
+gpt4_client = OpenAI(
+    api_key='sk-5dba84af311d4a0f8045a969086bfa46', 
+    base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
 )
+GPT4_MODEL = "qwen-vl-max"
 
-deployment_name = os.environ['GPT4V_API_DEPLOY']
-api_version = os.environ['GPT4V_API_VERSION']
-gpt4v_client = AzureOpenAI(
-    api_key=gpt4v_api_key,  
-    api_version=api_version,
-    base_url=f"{gpt4v_api_base}/openai/deployments/{deployment_name}")
+gpt4v_client = OpenAI(
+    api_key='sk-5dba84af311d4a0f8045a969086bfa46', 
+    base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+)
+GPT4V_MODEL = "qwen-vl-max"
 
 def local_image_to_data_url(image):
     if isinstance(image,str):
@@ -40,7 +33,7 @@ def gptv_response(text_prompt,image_prompt,system_prompt=""):
     prompt = [{'role':'system','content':system_prompt},
              {'role':'user','content':[{'type':'text','text':text_prompt},
                                        {'type':'image_url','image_url':{'url':local_image_to_data_url(image_prompt)}}]}]
-    response = gpt4v_client.chat.completions.create(model=deployment_name,
+    response = gpt4v_client.chat.completions.create(model=GPT4V_MODEL,
                                                     messages=prompt,
                                                     max_tokens=1000)
     return response.choices[0].message.content
@@ -48,7 +41,7 @@ def gptv_response(text_prompt,image_prompt,system_prompt=""):
 def gpt_response(text_prompt,system_prompt=""):
     prompt = [{'role':'system','content':system_prompt},
               {'role':'user','content':[{'type':'text','text':text_prompt}]}]
-    response = gpt4_client.chat.completions.create(model=deployment_name,
+    response = gpt4_client.chat.completions.create(model=GPT4_MODEL,
                                               messages=prompt,
                                               max_tokens=1000)
     return response.choices[0].message.content
