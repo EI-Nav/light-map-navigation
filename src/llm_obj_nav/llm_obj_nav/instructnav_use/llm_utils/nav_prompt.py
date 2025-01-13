@@ -38,6 +38,8 @@ Try not repeatly select the same <Landmark> as the <Previous Plan>."
 GPT4V_PROMPT = f"You are an outdoor navigation agent. I give you a panoramic observation image, complete navigation instruction and the sub-instruction you should execute now.  \
 Direction 0 is ahead, Direction 1 is to the forward left, Direction 2 is backward left, and Direction 3 is behind.  Direction 4 is backward right, and Direction 5 is to the forward right.Please carefully analyze visual information in each direction \
 and judge which direction is most suitable for next movement according to the act and landmark mentioned in the sub-instruction. \
+Please note that the red dots represent the points you have been to. \
+If you are exploring, it is best to avoid repeating the same path. \
 You answer should follow \"Thinking Process\" and \"Judgement\". In the \"Judgement: \" field, you should only write down direction ID you choose. \
 If you think you have arrived the destination, you can answer \"Stop\" in the \"Judgement: \" field. Note that the \"Direction 3\" is the directions you just came from. \
 Note that you answer in the \"Judgement: \" must follow the format such as: Judgement: Direction 3 \
