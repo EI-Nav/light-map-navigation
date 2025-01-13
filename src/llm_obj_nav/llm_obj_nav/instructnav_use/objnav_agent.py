@@ -6,8 +6,10 @@ from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
 from cv_bridge import CvBridge
 from tf2_ros import TransformListener, Buffer
-from geometry_msgs.msg import TransformStamped, PoseStamped, Quaternion
+import tf2_geometry_msgs
+from geometry_msgs.msg import TransformStamped, PoseStamped, Quaternion, Point, PointStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from visualization_msgs.msg import Marker, MarkerArray
 
 import math
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
@@ -30,7 +32,7 @@ from mapping_utils.transform import gazebo_camera_intrinsic
 from mapper import Instruct_Mapper
 from llm_utils.nav_prompt import CHAINON_PROMPT,GPT4V_PROMPT
 # from llm_utils.get_request_gpt import gpt_response,gptv_response
-from llm_utils.gpt_request import gpt_response,gptv_response
+from llm_utils.get_request_raw import gpt_response,gptv_response
 
 
 
@@ -43,7 +45,10 @@ class CameraPosition:
     def __repr__(self):
         return f"CameraPosition(x={self.x}, y={self.y}, z={self.z})"
 
-user_input = "Please approach the car parked on the roadside"
+user_input = "Please find unit2 of this building"
+# 相机的图片大小
+image_width = 640
+image_height = 480
 
 class HM3D_Objnav_Agent(Node):
     def __init__(self,mapper:Instruct_Mapper):
@@ -65,6 +70,7 @@ class HM3D_Objnav_Agent(Node):
 
         self.camera_positions = [CameraPosition()] *6  # 相机的 [x, y, z] 坐标
         self.camera_rotations = [quaternion.quaternion(1,0,0,0)] * 6   # 相机的四元数 [x, y, z, w]
+        self.camera_intrinsics = gazebo_camera_intrinsic()  # 获取相机内参
 
         # 用于临时存储接收到的最新数据
         self._latest_rgb = [None] * 6  # 存储6个相机的RGB图像
@@ -119,7 +125,7 @@ class HM3D_Objnav_Agent(Node):
         # 订阅里程计信息
         self.odom_subscriber = self.create_subscription(
             Odometry,
-            '/Odometry',  # 替换为实际的里程计话题
+            '/Odometry',
             self.odom_callback,
             10
         )
@@ -131,6 +137,10 @@ class HM3D_Objnav_Agent(Node):
         self.action_publisher = self.create_publisher(PointCloud2, 'action_pointcloud', 10)
         self.gpt4v_publisher = self.create_publisher(PointCloud2, 'gpt4v_pointcloud', 10)
         self.obstacle_publisher = self.create_publisher(PointCloud2, 'obstacle_pointcloud', 10)
+
+        self.color_costmap_publisher = self.create_publisher(Image, '/colored_navigable_costmap', 10)
+
+        self.visPath_publisher = self.create_publisher(Marker, '/apath_markers', 10)
 
         self.thread1 = Thread(target=self.run)
         self.thread1.daemon = True  # 守护线程，程序退出时自动结束
@@ -179,11 +189,23 @@ class HM3D_Objnav_Agent(Node):
             feedback = self.navigator.getFeedback()
             if feedback:
                 # self.get_logger().info(f"Feedback: {feedback}")
-                self.position = [feedback.current_pose.pose.position.x,
-                                 feedback.current_pose.pose.position.y,
-                                 feedback.current_pose.pose.position.z]
+                self.position = CameraPosition(
+                    x=feedback.current_pose.pose.position.x,
+                    y=feedback.current_pose.pose.position.y,
+                    z=feedback.current_pose.pose.position.z
+                )
+                # self.position = [feedback.current_pose.pose.position.x,
+                #                  feedback.current_pose.pose.position.y,
+                #                  feedback.current_pose.pose.position.z]
+                # todo 这里会实时更新机器人的位置信息，下一步将这个信息利用起来作为历史轨迹，不让机器人走回头路
+                # self.histort_traj空直接添加，不空的话判断是否和上一个点一样，不一样才添加
+                if len(self.history_traj) == 0:
+                    self.history_traj.append(self.position)
+                else:
+                    dis = calculate_3Dpoint_distance(self.history_traj[-1],self.position)
+                    if dis > 0.1:
+                        self.history_traj.append(self.position)
                 
-                # print(self.position)
         
         # Get the result of the navigation
         result = self.navigator.getResult()
@@ -213,6 +235,7 @@ class HM3D_Objnav_Agent(Node):
             msg.pose.pose.orientation.z,
             msg.pose.pose.orientation.w,
         ]
+
         self.is_odom_receive = True
         # self.get_logger().info("Received Odometry Information.")
 
@@ -327,34 +350,6 @@ class HM3D_Objnav_Agent(Node):
             "depth": self.depth
         }
 
-    def update_camera_pose(self):
-        try:
-            # 查询 lidar_odom 到 d435_0_link 的坐标变换
-            transform: TransformStamped = self.tf_buffer.lookup_transform(
-                'lidar_odom',  # 父坐标系
-                'd435_0_depth_optical_frame',  # 子坐标系
-                rclpy.time.Time()  # 查询最新时间的变换
-            )
-
-            # 提取平移和旋转信息
-            self.camera_position.x = transform.transform.translation.x
-            self.camera_position.y = transform.transform.translation.y
-            self.camera_position.z = transform.transform.translation.z
-            
-            self.camera_rotation = quaternion.from_float_array([
-                transform.transform.rotation.x,
-                transform.transform.rotation.y,
-                transform.transform.rotation.z,
-                transform.transform.rotation.w
-            ])
-
-            self.get_logger().info(
-                f"Camera pose updated: Position = {self.camera_position}, Rotation = {self.camera_rotation}"
-            )
-
-        except Exception as e:
-            self.get_logger().warn(f"Failed to lookup transform: {e}")
-
     def update_camera_poses_all(self):
         """
         更新所有相机的位置信息和旋转信息。
@@ -372,24 +367,18 @@ class HM3D_Objnav_Agent(Node):
 
                 # 提取平移信息并存储为 CameraPosition
                 position = CameraPosition(
-                    # x=transform.transform.translation.x,
-                    # y=transform.transform.translation.y,
-                    # z=transform.transform.translation.z
                     x=transform.transform.translation.x,
-                    y=transform.transform.translation.z,
-                    z=transform.transform.translation.y
+                    y=transform.transform.translation.y,
+                    z=transform.transform.translation.z
                 )
 
                 # 提取旋转信息
                 rotation = quaternion.from_float_array([
-                    # transform.transform.rotation.x,
-                    # transform.transform.rotation.y,
-                    # transform.transform.rotation.z,
-                    # transform.transform.rotation.w
+                    transform.transform.rotation.w,
                     transform.transform.rotation.x,
-                    transform.transform.rotation.z,
                     transform.transform.rotation.y,
-                    transform.transform.rotation.w
+                    transform.transform.rotation.z
+
                 ])
 
                 # 更新位置信息和旋转信息到列表中
@@ -400,7 +389,7 @@ class HM3D_Objnav_Agent(Node):
                     self.camera_positions.append(position)
                     self.camera_rotations.append(rotation)
 
-            self.get_logger().info(f"Updated positions: {self.camera_positions}")
+            # self.get_logger().info(f"Updated positions: {self.camera_positions}")
 
         except Exception as e:
             self.get_logger().warn(f"Failed to lookup transform for camera {i}: {e}")
@@ -431,17 +420,136 @@ class HM3D_Objnav_Agent(Node):
         self.gpt4v_affordance_trajectory = []
         self.affordance_trajectory = []
 
+        self.history_traj = []
+
     def reset(self):
         self.episode_samples += 1
         self.episode_steps = 0
         # self.obs = self.env_reset() #！修改完成
         self.env_step() # 更新为机器人当前的最新位置
         # todo 现在这一步给出来的`self.camera_position`是在Gazebo坐标系下，可能需要换一下
-        self.mapper.reset(self.camera_positions[0],self.camera_rotations[0]) 
+        self.mapper.init_map(self.camera_positions[0],self.camera_rotations[0]) 
         # 获取user的输入，这个可以手动给
         self.instruct_goal = user_input
         self.trajectory_summary = ""
-        self.reset_debug_probes()     
+        self.reset_debug_probes()   
+
+
+    from std_msgs.msg import Header
+
+    def publish_path(self, path):
+        if len(path) == 0:
+            self.get_logger().warn('Path is empty.')
+            return
+
+
+        # 发布路径的每个点
+        marker = Marker()
+        marker.header = Header()
+        marker.header.stamp = rclpy.time.Time(seconds=0).to_msg()
+        marker.header.frame_id = 'map'  # 坐标系设置为 map
+        marker.ns = 'path'
+        marker.id = 0  # 标记的唯一 ID
+        marker.type = Marker.LINE_STRIP  # 使用 LINE_STRIP 来显示路径
+        marker.action = Marker.ADD
+        marker.pose.position = Point(x=0.0, y=0.0, z=0.0)  # 不需要设置起始位置，因为是线段的集合
+
+        # 设置路径点的颜色和大小
+        marker.scale.x = 0.1  # 设置路径点的粗细
+        marker.color.r = 1.0  # 设置颜色为红色
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0  # 设置透明度
+
+        # 添加路径上的所有点
+        for point in path:
+            path_point = Point()
+            path_point.x = point[0]  # 假设路径的点是 (x, y, z)
+            path_point.y = point[1]
+            path_point.z = 0.0  # 根据需要设置 z 值
+            marker.points.append(path_point)
+
+        # 发布 MarkerArray 消息
+        self.visPath_publisher.publish(marker)
+        self.get_logger().info(f'Publishing path with {len(path)} waypoints.')
+
+    def save_colored_costmap_as_image(self, colored_costmap, filename="colored_costmap.png"):
+        # 确保 `colored_costmap` 是一个有效的 OpenCV 图像（uint8 类型）
+        if colored_costmap.dtype != np.uint8:
+            # 将值范围 [0, 1] 转换为 [0, 255]，适配 8 位无符号整型
+            colored_costmap = (colored_costmap * 255).astype(np.uint8)
+        
+        # 使用 OpenCV 保存图像
+        cv2.imwrite(filename, colored_costmap)
+        print(f"Colored costmap saved as {filename}")
+    
+
+    def project_traj_to_cameras(self, history_traj, output_dir = "projected_images"):
+
+        camera_intrinsics = self.camera_intrinsics
+        projected_points = {i: [] for i in range(6)}  # 存储每个相机的像素坐标
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        for i in range(6):
+            for traj_point in history_traj:
+                world_point = PointStamped()
+                world_point.header.frame_id = 'map'
+                world_point.header.stamp = self.get_clock().now().to_msg()
+                world_point.point.x = traj_point.x
+                world_point.point.y = traj_point.y
+                world_point.point.z = traj_point.z
+
+                try:
+                    transform = self.tf_buffer.lookup_transform(
+                        f'd435_{i}_depth_optical_frame',  # 相机坐标系
+                        'map',  # map 坐标系
+                        rclpy.time.Time()  # 查询最新的变换
+                    )
+
+                    transformed_point = tf2_geometry_msgs.do_transform_point(world_point, transform)
+                    x_c = transformed_point.point.x
+                    y_c = transformed_point.point.y
+                    z_c = transformed_point.point.z
+
+                    if z_c > 0:  # 确保点在相机前方
+                        # 从内参矩阵获取参数
+                        fx = camera_intrinsics[0, 0]
+                        fy = camera_intrinsics[1, 1]
+                        cx = camera_intrinsics[0, 2]
+                        cy = camera_intrinsics[1, 2]
+
+                        # 投影计算
+                        u = fx * (x_c / z_c) + cx
+                        v = fy * (y_c / z_c) + cy
+
+                        # 判断投影点是否在图像范围内
+                        if 0 <= u < image_width and 0 <= v < image_height:
+                            projected_points[i].append((u, v))                    
+                except Exception as e:
+                    self.get_logger().error(f"Failed to transform point: {e}")   
+        projected_images =[]
+        # 保存投影点到图像
+        for i in range(6):
+            rgb_image = self._latest_rgb[i]
+            for u, v in projected_points[i]:
+                u, v = int(u), int(v)  # 确保像素坐标是整数
+                # 在图像上绘制圆点
+                cv2.circle(rgb_image, (u, v), radius=5, color=(0, 0, 255), thickness=-1)
+
+            projected_images.append(rgb_image)
+
+            # output_path = os.path.join(output_dir, f"camera_{i}_projected.png")
+            # cv2.imwrite(output_path, rgb_image)
+            # self.get_logger().info(f"Projected points for camera {i} saved as {output_path}")
+
+        panoramic_image = self.concat_panoramic(projected_images)
+        
+        output_path = "projected_panoramic_image.png"
+        cv2.imwrite(output_path, panoramic_image)
+        self.get_logger().info(f"Saved panoramic image with projections to {output_path}.")
+        return panoramic_image
     
     def rotate_panoramic(self,rotate_times = 6):
         """旋转环境，获取全景图像和点云，输入的是旋转次数"""
@@ -505,7 +613,6 @@ class HM3D_Objnav_Agent(Node):
         self.env_step()
 
         self.episode_steps += 1
-        # self.metrics = self.env.get_metrics() #todo 还未修改，是否需要使用需要研究一下
         # 添加当前的RGB图像，深度图像
         self.rgb_trajectory.append(cv2.cvtColor(self.obs['rgb'],cv2.COLOR_BGR2RGB))
         self.depth_trajectory.append((self.obs['depth']/5.0 * 255.0).astype(np.uint8))
@@ -522,39 +629,35 @@ class HM3D_Objnav_Agent(Node):
         cv2.imwrite("monitor-depth.jpg",self.depth_trajectory[-1])
         cv2.imwrite("monitor-segmentation.jpg",self.segmentation_trajectory[-1])
 
-    def publish_valuemap(self, points, publisher, frame_id="map"):
+    def publish_pointcloud(self, points, publisher, frame_id="map"):
         if points is not None:
-            # 检查数据类型并提取 NumPy 数组
-            if isinstance(points, o3d.cuda.pybind.geometry.PointCloud) or isinstance(points, o3d.geometry.PointCloud):
-                points = np.asarray(points.points)  # 提取点云为 NumPy 数组
-
+            # Debug: Log the type and shape of points
+            self.get_logger().info(f"Type of points: {type(points)}")
+            
+            # Check if the point cloud is on the GPU (CUDA-based PointCloud)
+            if isinstance(points, o3d.cuda.pybind.t.geometry.PointCloud):
+                self.get_logger().info("Point cloud is on GPU. Transferring to CPU...")
+                points = points.to_legacy()  # Transfer to CPU as a legacy PointCloud object
+            
+            # Now points should be a regular Open3D point cloud (CPU-based)
+            if isinstance(points, o3d.geometry.PointCloud):
+                # Extract points as a NumPy array from the Open3D point cloud (CPU-based)
+                points = np.asarray(points.points)
+            
+            # If points is not a NumPy array at this point, return an error
             if not isinstance(points, np.ndarray):
                 self.get_logger().error("Invalid point cloud data format")
                 return
 
-            # 确保点云有正确的形状
+            # Ensure the point cloud has the correct shape (N, 3)
             if points.shape[1] != 3:
                 self.get_logger().error("Point cloud must have shape (N, 3)")
                 return
 
-            # 转换为 ROS2 消息并发布
+            # Convert to ROS2 message and publish
             cloud_msg = convert_cloud_to_ros_msg(points, frame_id)
             publisher.publish(cloud_msg)
             self.get_logger().info(f"Published point cloud to {publisher.topic_name}")
-
-    
-    def vis_valuemap_rviz(self):
-        for index, (afford, safford, hafford, cafford, gafford, oafford) in enumerate(
-            zip(self.affordance_trajectory, self.semantic_affordance_trajectory,
-                self.history_affordance_trajectory, self.action_affordance_trajectory,
-                self.gpt4v_affordance_trajectory, self.obstacle_affordance_trajectory)
-        ):
-            self.publish_valuemap(afford, self.affordance_publisher, frame_id="map")
-            self.publish_valuemap(safford, self.semantic_publisher, frame_id="map")
-            self.publish_valuemap(hafford, self.history_publisher, frame_id="map")
-            self.publish_valuemap(cafford, self.action_publisher, frame_id="map")
-            self.publish_valuemap(gafford, self.gpt4v_publisher, frame_id="map")
-            self.publish_valuemap(oafford, self.obstacle_publisher, frame_id="map")
 
     def save_trajectory(self,dir="./tmp_objnav/"):
         """保存导航的轨迹，包括RGB图像，深度图像，语义分割图像，全景图像，以及导航链，GPT4和"""
@@ -623,72 +726,35 @@ class HM3D_Objnav_Agent(Node):
         return answer
     
     def query_gpt4v(self):
-        images = self.temporary_images # 当前RGB图像（rotate_times个图像组成，分别对应机器人旋转360的不同视角）
-        print("********************************************")
-        print("len of temporary_images:",len(self.temporary_images))
-        print("********************************************")
 
-        inference_image = self.concat_panoramic(images) # 将多个图像拼接成一个全景图像
-        cv2.imwrite("monitor-panoramic.jpg",inference_image)
-        print("inference_image write successful !!!!!!!!")
+        if len(self.history_traj) != 0:
+            inference_image = self.project_traj_to_cameras(self.history_traj) # 将历史轨迹投影到相机视野中
+        else:
+            images = self.temporary_images # 当前RGB图像（rotate_times个图像组成，分别对应机器人旋转360的不同视角）
+            inference_image = self.concat_panoramic(images) # 将多个图像拼接成一个全景图像
+            print("inference_image write successful !!!!!!!!")
 
         # 输入用户指令和导航链生成的Action和Landmark，根据机器人生成的全景图，调用一个多模态大模型，输入RGB图像和自然语言，判断往哪一个方向走可以帮助机器人完成导航任务
         text_content = "<Navigation Instruction>:{}\n <Sub Instruction>:{}".format(self.instruct_goal,self.trajectory_summary.split("-")[-2] + "-" + self.trajectory_summary.split("-")[-1])
         self.gptv_trajectory.append("\nInput:\n%s \n"%text_content)
         print("MLLM prompt:",text_content)
+
         for i in range(10):
-            # try:
-            #     raw_answer = gptv_response(text_content,inference_image,GPT4V_PROMPT)
-            #     # raw_answer = 0
-            #     print("************loop gpt4v output****************")
-            #     print("GPT-4V Output Response_a: %s"%raw_answer)
-            #     answer = raw_answer[raw_answer.index("Judgement: Direction"):]
-            #     print("Raw answer close!!!!!!!!")
-            #     print(11111)
-            #     answer = answer.replace(" ","")
-            #     print(22222)
-            #     answer = int(answer.split("Direction")[-1])
-            #     print(33333)
-            #     print("************************************")
-            #     print("GPT-4V answer in loop!:",answer)
-            #     print("************************************")
-            #     break
-            # except:
-            #     continue
-
             try:
-                # # 调用 GPT-4V 并获取原始答案
-                # raw_answer = gptv_response(text_content, inference_image, GPT4V_PROMPT)
-                # print("GPT-4V Output Response_a: %s"%raw_answer)
-
-                # # 查找 "<Judgement>: Direction" 的位置
-                # start_index = raw_answer.index("<Judgement>: Direction")
-                
-                # # 提取从 "<Judgement>" 开始的部分
-                # judgment_text = raw_answer[start_index:].strip()
-
-                # # 提取 "Direction" 后的数字
-                # if "Direction" in judgment_text:
-                #     answer = int(judgment_text.split("Direction")[-1].split()[0])  # 提取第一个数字
-                #     print("Parsed Direction:", answer)
-                #     break
-                # else:
-                #     raise ValueError("No 'Direction' found in judgement text")
-                answer = 0
-                    
-            except ValueError as e:
-                print("Failed to parse direction due to value error:", e)
+                raw_answer = gptv_response(text_content,inference_image,GPT4V_PROMPT)
+                print("GPT-4V Output Response: %s"%raw_answer)
+                answer = raw_answer[raw_answer.index("Judgement: Direction"):]
+                answer = answer.replace(" ","")
+                direction = int(answer.split("Direction")[-1])
+                break
+            except:
+                print("maybe exploration!!!!!!!!!!!!!!")
                 continue
-            except IndexError as e:
-                print("Failed to parse due to missing fields:", e)
-                continue
-
-        # self.gptv_trajectory.append("GPT-4V Answer:\n%s"%raw_answer) # 记录GPT-4V的输出结果
+        self.gptv_trajectory.append("GPT-4V Answer:\n%s"%raw_answer) # 记录GPT-4V的输出结果
         self.panoramic_trajectory.append(inference_image) # 保存全景图像
         try:
-            return answer
+            return direction
         except:
-            print("GPT4V return randint!!!!!!!!!!!!!!! maybe exploration")
             return np.random.randint(0,6)
     
     def make_plan(self,rotate=True,failed=False):
@@ -697,11 +763,11 @@ class HM3D_Objnav_Agent(Node):
 
         if rotate == True: # 如果开启360度旋转模式，则获取全景图像和点云
             self.rotate_panoramic()
-        
+    
         self.chainon_answer = self.query_chainon() # 调用LLM获取一个初始的action和landmark
         self.gpt4v_answer = self.query_gpt4v()     # 调用MLM，结合刚才获得的action和landmark，寻找一个最有可能完成任务的方向
 
-        # self.gpt4v_answer = 0
+        # self.gpt4v_answer = 2
         print("***********************************")
         print("GPT4 - chainon_answer:", self.chainon_answer)
         print("***********************************")
@@ -709,29 +775,41 @@ class HM3D_Objnav_Agent(Node):
         print("***********************************")
 
         self.gpt4v_pcd = o3d.t.geometry.PointCloud(self.mapper.pcd_device) # 初始化一个空的点云对象
-        # print("*******************************")
-        # print(self.gpt4v_pcd)
-        # print("*******************************")
 
         self.gpt4v_pcd = gpu_merge_pointcloud(self.gpt4v_pcd,self.temporary_pcd[self.gpt4v_answer]) # 向继续前进方向的PCD
+
+        # self.publish_pointcloud(self.gpt4v_pcd, self.affordance_publisher, frame_id="map")
 
         self.found_goal = bool(self.chainon_answer['Flag']) # 判断是否完成任务
 
         # 返回融合后的value_map和可视化的value_map
         self.affordance_pcd,self.colored_affordance_pcd = self.mapper.get_objnav_affordance_map(self.chainon_answer['Action'],self.chainon_answer['Landmark'],self.gpt4v_pcd,self.chainon_answer['Flag'],failure_mode=failed)
 
-        # 输出调试信息
+        # self.publish_pointcloud(self.colored_affordance_pcd, self.affordance_publisher, frame_id="map")
+
+        # 输出调试信息,可视化semantic_affordsemantic_afford
         self.semantic_afford,self.history_afford,self.action_afford,self.gpt4v_afford,self.obs_afford = self.mapper.get_debug_affordance_map(self.chainon_answer['Action'],self.chainon_answer['Landmark'],self.gpt4v_pcd)
+
+        self.publish_pointcloud(self.semantic_afford, self.semantic_publisher, frame_id="map")
+        self.publish_pointcloud(self.gpt4v_afford, self.gpt4v_publisher, frame_id="map")
+        self.publish_pointcloud(self.obs_afford, self.obstacle_publisher, frame_id="map")
+
 
         # 判断value_map是否全为0，如果全为0，则重新生成
         if self.affordance_pcd.max() == 0:
             self.affordance_pcd,self.colored_affordance_pcd = self.mapper.get_objnav_affordance_map(self.chainon_answer['Action'],self.chainon_answer['Landmark'],self.gpt4v_pcd,False,failure_mode=failed)
             self.found_goal = False
+
         
         # 将value_map从点云形式转换为栅格地图(2D)形式,用来做后续的规划,生成2D的costmap
         self.affordance_map,self.colored_affordance_map = project_costmap(self.mapper.navigable_pcd,self.affordance_pcd,self.mapper.grid_resolution)
 
-        # 令最终的目标点是value_map中最大值对应的点
+        self.publish_pointcloud(self.mapper.navigable_pcd, self.obstacle_publisher, frame_id="map")
+
+        self.save_colored_costmap_as_image(self.colored_affordance_map, "colored_costmap.png")
+        
+
+        #todo 在可通行区域pcd中寻找valuemap的最大值，这个点是最终的终点
         self.target_point = self.mapper.navigable_pcd.point.positions[self.affordance_pcd.argmax()].cpu().numpy()
 
         # 获取当前机器人的位置
@@ -741,24 +819,22 @@ class HM3D_Objnav_Agent(Node):
         start_index = translate_point_to_grid(self.mapper.navigable_pcd,self.mapper.current_position,self.mapper.grid_resolution)
         # 调用A*算法搜索出路径
         self.path = path_planning(self.affordance_map,start_index,target_index)
-        self.path = [translate_grid_to_point(self.mapper.navigable_pcd,np.array([[waypoint.y,waypoint.x,0]]),self.mapper.grid_resolution)[0] for waypoint in self.path]
+        vispathmap = visualize_path(self.affordance_map, self.path)
+        self.save_colored_costmap_as_image(vispathmap, "colored_costmap_path.png")
 
-        # print("Using pathplanning lib to generate path:",self.path)
-        # visualized_path = visualize_path(self.affordance_map, self.path)
-        # print(type(visualized_path))
-        # cv2.imshow("Costmap with Path", visualized_path)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
+        self.path = [translate_grid_to_point(self.mapper.navigable_pcd,np.array([[waypoint.y,waypoint.x,0]]),self.mapper.grid_resolution)[0] for waypoint in self.path]
+        
+        self.publish_path(self.path)
 
         # 根据规划出来的路径选择下一步的waypoint
         if len(self.path) == 0: # 如果路径为空，则在可通行区域中选择一个具有最大
             self.waypoint = self.mapper.navigable_pcd.point.positions.cpu().numpy()[np.argmax(self.affordance_pcd)]
             self.waypoint[2] = self.mapper.current_position[2] # 确保z坐标高度一致
-        elif len(self.path) < 5: 
+        elif len(self.path) < 10: 
             self.waypoint = self.path[-1]
             self.waypoint[2] = self.mapper.current_position[2]
         else:
-            self.waypoint = self.path[4] # 路径长度大于5则只选择第5个点作为下一个目标点
+            self.waypoint = self.path[9] # 路径长度大于5则只选择第5个点作为下一个目标点
             self.waypoint[2] = self.mapper.current_position[2]
         
 
@@ -773,53 +849,26 @@ class HM3D_Objnav_Agent(Node):
         print("save_trajcetory")
         print("************************************")
         # self.save_trajectory()
-        self.vis_valuemap_rviz()
         # print("ok")
-    def step(self):
+
+    def act(self):
         if not self.is_rgb_receive and not self.is_depth_receive and not self.is_odom_receive:
             print("Waitting for Gazebo Simulator Get Robot Information")
             return 
-        print("****************************************************")
-        print(self.is_rgb_receive,self.is_depth_receive,self.is_odom_receive)
-        print("****************************************************")
-        # 计算当前位置到目标点的距离
-        to_target_distance = np.sqrt(np.sum(np.square(self.mapper.current_position - self.waypoint)))
-        if to_target_distance < 0.6 and len(self.path) > 0:
-            self.path = self.path[min(5,len(self.path)-1):]
-            if len(self.path) < 3:
-                self.waypoint = self.path[-1]
-                self.waypoint[2] = self.mapper.current_position[2]
-            else:
-                self.waypoint = self.path[2]
-                self.waypoint[2] = self.mapper.current_position[2]
-
-        pid_waypoint = self.waypoint + self.mapper.initial_position # 得到计算出来目标点相对于初始点的增加一个偏移量，waypoint是相对于机器人自身的坐标，这一步相当于转换到全局坐标系
-        # todo 这一步为什么要这么写？？？
-        # todo 检查这一步的坐标系设置-> habitat坐标系和普通的世界坐标系不同
-        # pid_waypoint = np.array([pid_waypoint[0],self.position[1],pid_waypoint[1]])
-        pid_waypoint = np.array([-pid_waypoint[1],pid_waypoint[0],self.position[1]])
         
-        # todo 增加机器人的replan环节
-        move_distance =  np.sqrt(np.sum(np.square(self.mapper.current_position - self.plan_position)))
-        # 如果机器人没有到达目标点，或者走过的距离大于3米，则重新规划路径
-        if (move_distance > 3.0) and not self.found_goal:
-            self.make_plan(rotate=True)
-            pid_waypoint = self.waypoint + self.mapper.initial_position
-            # pid_waypoint = np.array([pid_waypoint[0],self.position[1],pid_waypoint[1]])
-            pid_waypoint = np.array([-pid_waypoint[1],pid_waypoint[0],self.position[1]])
-
-
+        # 执行`make_plan`中计算出来的pid_waypoint
         if not self.found_goal:
-            self.make_plan(False,True)
             pid_waypoint = self.waypoint + self.mapper.initial_position
-            # pid_waypoint = np.array([pid_waypoint[0],self.position[1],pid_waypoint[1]])
-            pid_waypoint = np.array([-pid_waypoint[1],pid_waypoint[0],self.position[1]])
+            self.move_next(pid_waypoint)
+            self.env_step()
+            self.update_trajectory()
+            self.mapper.reset(self.camera_positions[0],self.camera_rotations[0])
+            self.make_plan()
 
+        elif self.found_goal:
+            print("Goal Found, Mission Completed")
+            return
 
-        # 这里才执行导航操作，前面都是根据假设看看走的和不合适
-        self.move_next(pid_waypoint)
-        self.env_step()
-        self.update_trajectory()
 
     def run(self):
         while(not self.is_rgb_receive or not self.is_depth_receive or not self.is_odom_receive):
@@ -831,14 +880,9 @@ class HM3D_Objnav_Agent(Node):
             self.reset()
             self.make_plan()
             self.is_plan_init = True
-            # self.plan完了应该一直运行self.plan，不应该重新reset 
 
         while(True):
-            self.step()
-            # print("************************************")
-            # print("save_trajcetory")
-            # print("************************************")
-            # self.save_trajectory()
+            self.act()
 
 
 def main(args=None):
