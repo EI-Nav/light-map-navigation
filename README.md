@@ -171,6 +171,8 @@ llm_api:
   key: "your_key"
   base_url: "your_base_url"
   model_name: "your_model_name" 
+```
+
 
 ### GSAM2 Config
 
