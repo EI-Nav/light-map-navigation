@@ -2,32 +2,32 @@
 
 apt install psmisc -y
 
-# 检查是否提供了参数文件路径
+# Check if parameter file path is provided
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <path_to_params_file>"
   exit 1
 fi
 
-# 从命令行参数获取参数文件路径
+# Get parameter file path from command line argument
 params_file=$1
 
-# 检查文件是否存在
+# Check if file exists
 if [ ! -f "$params_file" ]; then
   echo "Error: File not found!"
   exit 1
 fi
 
-# 获取文件名
+# Get filename
 filename=$(basename -- "$params_file")
 filename_without_extension="${filename%.*}"
 
-# 构建 result 目录下的 CSV 文件路径
+# Build CSV file path in the result directory
 csv_file="result/${filename_without_extension}.csv"
 
 echo "Reading from: $params_file"
 echo "Writing to: $csv_file"
 
-# 如果存在旧的CSV文件，将其备份
+# Backup old CSV file if it exists
 if [ -f "$csv_file" ]; then
   timestamp=$(date +"%Y%m%d_%H%M%S")
   backup_file="result/${filename_without_extension}_backup_${timestamp}.csv"
@@ -35,55 +35,37 @@ if [ -f "$csv_file" ]; then
   echo "Backup created: $backup_file"
 fi
 
-# 遍历文本文件中的每一行
+# Iterate through each line in the text file
 while IFS= read -r line || [[ -n "$line" ]]
 do
   echo "Starting navigation and simulation environment..."
   
-  # 启动机器人导航系统及仿真环境
+  # Start robot navigation system and simulation environment
   ros2 launch classic_nav_bringup bringup_sim.launch.py \
-    world:=LARGE_OSM \
+    world:=MEDIUM_OSM \
     mode:=nav \
     lio:=fastlio \
     localization:=icp \
     lio_rviz:=False \
     nav_rviz:=True \
     use_sim_time:=True &
-  sim_pid=$!  # 获取仿真环境进程ID
+  sim_pid=$!  # Get simulation environment process ID
   
-  # 等待仿真环境启动完成
-  sleep 20  # 根据实际需要调整时间
+  # Wait for simulation environment to start
+  sleep 20  # Adjust time according to actual needs
   
   echo "Starting exploration nodes..."
   
-  # 启动探索节点
-  ros2 run llm_exploration_py get_unit_num_service &
-  exploration_pid=$!  # 获取探索节点进程ID
+  # Start delivery service related nodes
+  ros2 launch delivery_bringup delivery_system_sim.launch.py &
   
-  # 启动单元号识别节点
-  ros2 run llm_exploration_py find_unit_server &
-  find_unit_pid=$!  # 获取单元号识别节点进程ID
+  sleep 5  # Adjust time according to actual needs
   
-  # 等待探索和单元号识别节点启动
-  sleep 5  # 根据实际需要调整时间
-
-  echo "Starting task record node..."
-
-  python3 task_record.py --filename "$csv_file" &
-
-  sleep 1
+  # Start delivery service node and pass the current command
+  ros2 run delivery_executor delivery_executor_action_client --instruction "$line" --log-file "$csv_file" &
   
-  echo "Starting delivery service node with parameter: $line"
-
-  ros2 run llm_delivery robot_pose_pub_node &
-
-  sleep 1
-  
-  # 启动配送服务节点并传递当前的指令
-  ros2 run llm_delivery llm_delivery_node "$line" &
-  
-  # 等待配送任务完成
-  sleep 1000  # 可根据实际任务的耗时调整
+  # Wait for delivery task to complete
+  sleep 900  # Can be adjusted according to actual task duration
   
   echo "Stopping exploration nodes and simulation environment..."
 
@@ -91,7 +73,7 @@ do
 
   sleep 5
   
-  # 等待所有进程关闭
+  # Wait for all processes to close
   wait $sim_pid 2>/dev/null
 
   killall /usr/bin/python3

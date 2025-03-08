@@ -304,6 +304,9 @@ class DeliveryExecutorActionServer(Node):
                     yaw = local_waypoints[-1][2]
                 
                 local_waypoints.append((local_waypoint[0], local_waypoint[1], yaw))
+
+            # replanner test
+            # local_waypoints = [(wp[0] + 3.0, wp[1] + 1.0, wp[2]) for wp in local_waypoints]
                 
             total_waypoints = len(local_waypoints)
             self.get_logger().info(f'Total waypoints: {total_waypoints}')
@@ -769,7 +772,7 @@ class DeliveryExecutorActionServer(Node):
         try:
             # TODO: Implement waypoint validation logic:
             
-            return True
+            return False
             
         except Exception as e:
             self.get_logger().error(f'Waypoint validation failed: {str(e)}')
