@@ -1,4 +1,3 @@
-import argparse
 import os
 from typing import List, Tuple
 import cv2
@@ -102,97 +101,48 @@ def update_yaml(yaml_data, new_image_path, new_origin, transform_matrix):
     }
     return yaml_data
 
-class TransformConfig:
-    """Configuration class for transformation parameters"""
-    def __init__(self, transform_matrix: np.ndarray = None):
-        self.transform_matrix = transform_matrix or np.array([
-            [1.0, 0.0, -500000],
-            [0.0, 1.0, -4483000],
-            [0.0, 0.0, 1.0]
-        ])
-
-def parse_args():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description='Transform PGM maps with associated YAML files')
-    parser.add_argument('--input-dir', required=True, help='Input directory containing PGM and YAML files')
-    parser.add_argument('--output-dir', required=True, help='Output directory for transformed files')
-    parser.add_argument('--prefixes', nargs='+', default=['SMALL', 'MEDIUM', 'LARGE'],
-                      help='Prefixes for input/output files')
-    parser.add_argument('--margins', nargs=4, type=float, default=[20, 20, 20, 20],
-                      help='Margins in meters [left, right, top, bottom]')
-    return parser.parse_args()
-
-def get_file_pairs(base_path: str, prefixes: List[str]) -> List[Tuple[str, str]]:
-    """Generate input/output file pairs based on prefixes"""
-    return [
-        [f'{base_path}/{prefix}_OSM.pgm', f'{base_path}/{prefix}_OSM.yaml']
-        for prefix in prefixes
-    ]
-
-def process_image_batch(input_files, output_files, margins=[20, 20, 20, 20], transform_matrix=None):
-    """Process multiple image files
+def rigid_transform_from_matrix(image_path, output_image_path, yaml_path, output_yaml_path, margins=[10, 10, 10, 10], transform_matrix=None):
+    """Transform PGM image using transformation matrix
     
     Args:
-        input_files: List of input file information, each containing [pgm_file_path, yaml_file_path]
-        output_files: List of output file information, each containing [pgm_file_path, yaml_file_path]
+        image_path: Path to input PGM image
+        output_image_path: Path to output transformed PGM image
+        yaml_path: Path to input YAML metadata
+        output_yaml_path: Path to output YAML metadata
         margins: Margin parameters [left, right, top, bottom] in meters
-        transform_matrix: Transformation matrix to use
+        transform_matrix: 3x3 transformation matrix to apply
     """
-    for (input_pgm, input_yaml), (output_pgm, output_yaml) in zip(input_files, output_files):
-        rigid_transform_from_matrix(
-            image_path=input_pgm,
-            output_image_path=output_pgm,
-            yaml_path=input_yaml,
-            output_yaml_path=output_yaml,
-            margins=margins,
-            transform_matrix=transform_matrix
-        )
-
-def rigid_transform_from_matrix(image_path, output_image_path, yaml_path, output_yaml_path, margins=[10, 10, 10, 10], transform_matrix=None):
-    """Transform PGM image using transformation matrix"""
     if transform_matrix is None:
-        # 使用默认的变换矩阵
-        transform_matrix = TransformConfig().transform_matrix
-        
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        # Use identity matrix if none provided
+        transform_matrix = np.eye(3)
     
+    # Load the image
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise ValueError(f"Could not read image file: {image_path}")
+    
+    # Load the YAML data
     with open(yaml_path, 'r') as file:
         yaml_data = yaml.safe_load(file)
 
     resolution = yaml_data['resolution']
     origin = yaml_data['origin']
 
+    # Transform the points
     transformed_points = transform_points(image, transform_matrix, resolution, origin)
+    
+    # Create output directory if it doesn't exist
+    output_dir = os.path.dirname(output_image_path)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+    
+    # Generate new PGM file
     new_origin = generate_new_pgm(transformed_points, resolution, output_image_path, margins)
 
+    # Update and save YAML metadata
     updated_yaml_data = update_yaml(yaml_data, output_image_path, new_origin, transform_matrix)
     with open(output_yaml_path, 'w') as file:
         yaml.dump(updated_yaml_data, file, default_flow_style=False, sort_keys=False)
-
-def main():
-    """Main entry point"""
-    args = parse_args()
     
-    # Ensure output directory exists
-    os.makedirs(args.output_dir, exist_ok=True)
-    
-    # Generate input/output file pairs
-    input_files = get_file_pairs(args.input_dir, args.prefixes)
-    output_files = get_file_pairs(args.output_dir, args.prefixes)
-    
-    # Initialize transformation configuration
-    transform_matrix = np.array([
-        [0.99999314, -0.00370302, -433527.96846809],
-        [0.00370302, 0.99999314, -4426279.90359065],
-        [0.0, 0.0, 1.0]
-    ])
-    
-    process_image_batch(
-        input_files=input_files,
-        output_files=output_files,
-        margins=args.margins,
-        transform_matrix=transform_matrix
-    )
-
-if __name__ == "__main__":
-    main()
+    print(f"Transformed image saved to: {output_image_path}")
+    print(f"Transformed YAML saved to: {output_yaml_path}") 
