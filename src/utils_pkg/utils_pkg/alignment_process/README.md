@@ -22,7 +22,7 @@ The alignment process consists of the following steps:
 ## Usage
 
 ```bash
-python -m utils_pkg.alignment_process.alignment_pipeline \
+python run_alignment.py \
     --osm_file /path/to/map.osm \
     --pcd_file /path/to/pointcloud.pcd \
     --output_dir /path/to/output \
@@ -70,46 +70,47 @@ When running in interactive mode:
 
 ## Example
 
-1.安装open3d
+1. **Install Open3D**
 
 ```bash
 pip install open3d
 ```
 
-2.运行对齐流程程序
+2. **Run the alignment process**
 
 ```bash
+cd src/utils_pkg
 python3 run_alignment.py --osm_file example/BUCT/BUCT.osm --pcd_file example/BUCT/BUCT.pcd --output_dir example/ --min_z 7.0 --max_z 10.0 --interactive
 ```
 
-![image-20250424141929730](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424141929730.png)
+![Initial alignment interface](../../../../doc/Map_Alignment/image-20250424141929730.png)
 
-3.选则至少三对点后，点击计算变换
+3. **Select at least three pairs of corresponding points, then click "Calculate Transform"**
 
-![image-20250424142158525](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424142023642.png)
+![Points selection](../../../../doc/Map_Alignment/image-20250424142023642.png)
 
-4.点击可视化结果进行检查（需等待结果绘制若干秒）
+4. **Click "Visualize Result" to check the alignment (it may take a few seconds to render)**
 
-![image-20250424142416825](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424142416825.png)
+![Alignment visualization](../../../../doc/Map_Alignment/image-20250424142416825.png)
 
-5.若对齐结果没问题，关闭程序界面，结果将自动保存（等待终端完成）
+5. **If the alignment is satisfactory, close the program interface and the results will be automatically saved (wait for the terminal to complete)**
 
-![image-20250424142656951](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20240718102111552.png)
+![Terminal output](../../../../doc/Map_Alignment/image-20240718102111552.png)
 
-6. 关注这三个文件，前两个文件用作最终的osm pgm
+6. **Pay attention to these three files - the first two will be used as the final OSM PGM files**
 
-![image-20250424144421735](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424144421735.png)
+![Output files](../../../../doc/Map_Alignment/image-20250424144421735.png)
 
-7. 把得到的变换矩阵复制到必要的文件中
+7. **Copy the resulting transformation matrix to the necessary configuration files**
 
-![image-20250424144702605](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424144702605.png)
+![Transformation matrix](../../../../doc/Map_Alignment/image-20250424144702605.png)
 
-目前有两个地方需要修改变换矩阵
+Currently, there are two places where you need to update the transformation matrix:
 
-1）/workspaces/light-map-navigation/src/delivery_bringup/config/delivery_bringup_sim.yaml
+1) In `/workspaces/light-map-navigation/src/delivery_bringup/config/delivery_bringup_sim.yaml`:
+   - Location 1: Use OSM-->PCD transformation
+   - Location 2: Use PCD-->OSM transformation
 
-1处使用OSM-->PCD,2处使用PCD-->OSM.
+![Configuration file](../../../../doc/Map_Alignment/image-20250424150332555.png)
 
-![image-20250424150332555](/home/wjh/Research/light-map-navigation/doc/Map_Alignment/image-20250424150332555.png)
-
-2) OPEN-MIND中绘制OSM是的变换矩阵使用PCD-->OSM
+2) When drawing OSM in OPEN-MIND, use the PCD-->OSM transformation matrix
